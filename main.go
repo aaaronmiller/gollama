@@ -128,6 +128,8 @@ func main() {
 	listFlag := flag.Bool("l", false, "List all available Ollama models and exit")
 	linkFlag := flag.Bool("L", false, "Link Ollama models to LM Studio")
 	linkLMStudioFlag := flag.Bool("link-lmstudio", false, "Link LM Studio models to Ollama")
+	linkCustomSourceFlag := flag.Bool("link-custom-source", false, "Link models from a custom source directory to LM Studio")
+	customSourceDirFlag := flag.String("custom-source-dir", "", "Path to custom source directory for models (overrides GOLLAMA_CUSTOM_MODEL_SOURCE env var and config file)")
 	dryRunFlag := flag.Bool("dry-run", false, "Show what would be linked without making any changes (use with -L or -link-lmstudio)")
 	ollamaDirFlag := flag.String("ollama-dir", cfg.OllamaAPIKey, "Custom Ollama models directory")
 	lmStudioDirFlag := flag.String("lm-dir", cfg.LMStudioFilePaths, "Custom LM Studio models directory")
@@ -157,6 +159,25 @@ func main() {
 		fmt.Println(Version)
 		os.Exit(0)
 	}
+
+	// Determine activeCustomSourceDir
+	var activeCustomSourceDir string
+	if *customSourceDirFlag != "" {
+		activeCustomSourceDir = *customSourceDirFlag
+		logging.InfoLogger.Printf("Custom source directory set from --custom-source-dir flag: %s\n", activeCustomSourceDir)
+	} else {
+		envVal := os.Getenv("GOLLAMA_CUSTOM_MODEL_SOURCE")
+		if envVal != "" {
+			activeCustomSourceDir = envVal
+			logging.InfoLogger.Printf("Custom source directory set from GOLLAMA_CUSTOM_MODEL_SOURCE env var: %s\n", activeCustomSourceDir)
+		} else if cfg.CustomModelSourceDir != "" { // cfg is the loaded config.Config instance
+			activeCustomSourceDir = cfg.CustomModelSourceDir
+			logging.InfoLogger.Printf("Custom source directory set from config file: %s\n", activeCustomSourceDir)
+		}
+	}
+	// Ensure cfg.CustomModelSourceDir is updated for the current execution if needed elsewhere via cfg.
+	// This makes the resolved value accessible throughout the application via the config struct.
+	cfg.CustomModelSourceDir = activeCustomSourceDir
 
 	if *localHostFlag {
 		*hostFlag = "http://localhost:11434"
@@ -472,6 +493,34 @@ func main() {
 		if failCount > 0 {
 			os.Exit(1)
 		}
+		os.Exit(0)
+	}
+
+	if *linkCustomSourceFlag {
+		// Ensure the target LM Studio directory is determined (similar to how it's done for -L)
+		// The app.lmStudioModelsDir should already be populated correctly by prior logic
+		// (either from -lm-dir flag, config, or default).
+
+		fmt.Printf("Linking models from custom source /Volumes/NIPPIN/LM-Studio to LM Studio directory: %s (Dry Run: %t)\n", app.lmStudioModelsDir, *dryRunFlag)
+
+		// The first argument to linkModelsFromCustomSource is the customSourceDir,
+		// which is now flexible (activeCustomSourceDir).
+		// The second is app.lmStudioModelsDir
+		// The third is the dryRunFlag
+		if activeCustomSourceDir == "" {
+			logging.ErrorLogger.Println("Error: Custom source directory not set. Use --custom-source-dir, GOLLAMA_CUSTOM_MODEL_SOURCE, or config file.")
+			fmt.Println("Error: Custom source directory not set. Please specify it via --custom-source-dir, GOLLAMA_CUSTOM_MODEL_SOURCE environment variable, or in the config file.")
+			os.Exit(1)
+		}
+		fmt.Printf("Linking models from custom source %s to LM Studio directory: %s (Dry Run: %t)\n", activeCustomSourceDir, app.lmStudioModelsDir, *dryRunFlag)
+		err := linkModelsFromCustomSource(activeCustomSourceDir, app.lmStudioModelsDir, *dryRunFlag)
+		if err != nil {
+			logging.ErrorLogger.Printf("Error linking models from custom source: %v\n", err)
+			fmt.Printf("Failed to link models from custom source: %v\n", err)
+			os.Exit(1)
+		}
+		logging.InfoLogger.Println("Successfully linked models from custom source.")
+		fmt.Println("Successfully linked models from custom source.")
 		os.Exit(0)
 	}
 

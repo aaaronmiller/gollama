@@ -15,12 +15,13 @@ import (
 type Config struct {
 	Columns           []string `mapstructure:"columns"`
 	OllamaAPIKey      string   `mapstructure:"ollama_api_key"`
-	OllamaAPIURL      string   `mapstructure:"ollama_api_url"`
-	OllamaModelsDir   string   `mapstructure:"ollama_models_dir"`
-	LMStudioFilePaths string   `mapstructure:"lm_studio_file_paths"`
-	LogLevel          string   `mapstructure:"log_level"`
-	LogFilePath       string   `mapstructure:"log_file_path"`
-	SortOrder         string   `mapstructure:"sort_order"`   // Current sort order
+	OllamaAPIURL         string `mapstructure:"ollama_api_url"`
+	OllamaModelsDir      string `mapstructure:"ollama_models_dir"`
+	LMStudioFilePaths    string `mapstructure:"lm_studio_file_paths"`
+	CustomModelSourceDir string `mapstructure:"custom_model_source_dir"` // New field
+	LogLevel             string `mapstructure:"log_level"`
+	LogFilePath          string `mapstructure:"log_file_path"`
+	SortOrder            string `mapstructure:"sort_order"`   // Current sort order
 	StripString       string   `mapstructure:"strip_string"` // Optional string to strip from model names in the TUI (e.g. a private registry URL)
 	Editor            string   `mapstructure:"editor"`
 	Theme             string   `mapstructure:"theme"`            // Name of the theme to use (without .json extension)
@@ -88,6 +89,7 @@ func CreateDefaultConfig() error {
 	viper.SetDefault("ollama_api_key", defaultConfig.OllamaAPIKey)
 	viper.SetDefault("ollama_api_url", defaultConfig.OllamaAPIURL)
 	viper.SetDefault("lm_studio_file_paths", defaultConfig.LMStudioFilePaths)
+	viper.SetDefault("custom_model_source_dir", defaultConfig.CustomModelSourceDir) // Added for completeness, though might be empty
 	viper.SetDefault("log_level", defaultConfig.LogLevel)
 	viper.SetDefault("log_file_path", defaultConfig.LogFilePath)
 	viper.SetDefault("sort_order", defaultConfig.SortOrder)
@@ -153,6 +155,7 @@ func LoadConfig() (Config, error) {
 	config.OllamaAPIURL = viper.GetString("ollama_api_url")
 	config.OllamaModelsDir = viper.GetString("ollama_models_dir")
 	config.LMStudioFilePaths = viper.GetString("lm_studio_file_paths")
+	config.CustomModelSourceDir = viper.GetString("custom_model_source_dir") // Load from config if present
 	config.LogLevel = viper.GetString("log_level")
 	config.LogFilePath = viper.GetString("log_file_path")
 	config.SortOrder = viper.GetString("sort_order")
@@ -176,6 +179,7 @@ func SaveConfig(config Config) error {
 	viper.Set("ollama_api_url", config.OllamaAPIURL)
 	viper.Set("ollama_models_dir", config.OllamaModelsDir)
 	viper.Set("lm_studio_file_paths", config.LMStudioFilePaths)
+	viper.Set("custom_model_source_dir", config.CustomModelSourceDir) // Save to config if modified and this field has a value
 	viper.Set("log_level", config.LogLevel)
 	viper.Set("log_file_path", config.LogFilePath)
 	viper.Set("sort_order", config.SortOrder)

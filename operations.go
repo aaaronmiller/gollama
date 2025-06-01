@@ -644,6 +644,119 @@ func cleanupSymlinkedModels(lmStudioModelsDir string) {
 	}
 }
 
+// linkModelsFromCustomSource implements file-by-file symlinking from a custom source to LM Studio's model directory.
+func linkModelsFromCustomSource(customSourceDir string, lmStudioModelsDir string, dryRun bool) error {
+	logging.InfoLogger.Printf("Starting file-by-file symlinking from custom source '%s' to LM Studio directory '%s' (Dry Run: %t)\n", customSourceDir, lmStudioModelsDir, dryRun)
+
+	authorDirEntries, err := os.ReadDir(customSourceDir)
+	if err != nil {
+		logging.ErrorLogger.Printf("Error reading custom source directory '%s': %v\n", customSourceDir, err)
+		return fmt.Errorf("error reading custom source directory '%s': %v", customSourceDir, err)
+	}
+
+	for _, authorEntry := range authorDirEntries {
+		if !authorEntry.IsDir() {
+			if authorEntry.Name() != ".DS_Store" { // Example: ignore .DS_Store silently
+				logging.DebugLogger.Printf("Skipping non-directory entry '%s' in custom source root.\n", authorEntry.Name())
+			}
+			continue
+		}
+		authorName := authorEntry.Name()
+		currentAuthorSourcePath := filepath.Join(customSourceDir, authorName)
+
+		modelFolderEntries, err := os.ReadDir(currentAuthorSourcePath)
+		if err != nil {
+			logging.WarnLogger.Printf("Could not read author source directory '%s': %v. Skipping.\n", currentAuthorSourcePath, err)
+			continue
+		}
+
+		for _, modelFolderEntry := range modelFolderEntries {
+			if !modelFolderEntry.IsDir() {
+				if modelFolderEntry.Name() != ".DS_Store" {
+					logging.DebugLogger.Printf("Skipping non-directory entry '%s' in author path '%s'.\n", modelFolderEntry.Name(), currentAuthorSourcePath)
+				}
+				continue
+			}
+			modelFolderName := modelFolderEntry.Name()
+			fullSourceModelPath := filepath.Join(currentAuthorSourcePath, modelFolderName) // This is the source /Volumes/NIPPIN/.../Author/ModelFolder
+
+			// Construct Target Model Path (as a real directory)
+			targetAuthorDir := filepath.Join(lmStudioModelsDir, authorName)
+			targetModelDir := filepath.Join(targetAuthorDir, modelFolderName) // This is ~/.cache/lm-studio/models/Author/ModelFolder
+
+			logging.InfoLogger.Printf("Processing source model directory: '%s'\n", fullSourceModelPath)
+
+			if dryRun {
+				fmt.Printf("[DRY RUN] Would ensure target model directory '%s' exists (and is empty).\n", targetModelDir)
+				logging.InfoLogger.Printf("[DRY RUN] Target model directory: '%s'\n", targetModelDir)
+			} else {
+				// If targetModelDir exists, remove it to ensure a clean slate.
+				if _, err := os.Lstat(targetModelDir); err == nil {
+					logging.InfoLogger.Printf("Removing existing item at target model directory path '%s'\n", targetModelDir)
+					if err := os.RemoveAll(targetModelDir); err != nil {
+						logging.ErrorLogger.Printf("Failed to remove existing item at '%s': %v. Skipping model.\n", targetModelDir, err)
+						fmt.Printf("Failed to prepare target directory for %s: %v\n", modelFolderName, err)
+						continue
+					}
+				} else if !os.IsNotExist(err) {
+					logging.ErrorLogger.Printf("Error checking target model directory '%s': %v. Skipping model.\n", targetModelDir, err)
+					fmt.Printf("Failed to prepare target directory for %s: %v\n", modelFolderName, err)
+					continue
+				}
+
+				// Create the actual directory structure.
+				if err := os.MkdirAll(targetModelDir, 0755); err != nil {
+					logging.ErrorLogger.Printf("Failed to create target model directory '%s': %v. Skipping model.\n", targetModelDir, err)
+					fmt.Printf("Failed to create target directory for %s: %v\n", modelFolderName, err)
+					continue
+				}
+				logging.InfoLogger.Printf("Ensured target model directory exists: '%s'\n", targetModelDir)
+				fmt.Printf("Created/Ensured directory: %s\n", targetModelDir)
+			}
+
+			sourceFiles, err := os.ReadDir(fullSourceModelPath)
+			if err != nil {
+				logging.ErrorLogger.Printf("Could not read source model files from '%s': %v. Skipping model.\n", fullSourceModelPath, err)
+				fmt.Printf("Could not read source files for %s: %v\n", modelFolderName, err)
+				continue
+			}
+
+			if len(sourceFiles) == 0 {
+				logging.WarnLogger.Printf("Source model folder '%s' is empty. No files to symlink.\n", fullSourceModelPath)
+			}
+
+			for _, fileEntry := range sourceFiles {
+				if fileEntry.IsDir() {
+					logging.DebugLogger.Printf("Skipping sub-directory '%s' within model folder '%s'. Only direct files are symlinked.\n", fileEntry.Name(), fullSourceModelPath)
+					continue // Not symlinking nested directories, only files.
+				}
+
+				sourceFilePath := filepath.Join(fullSourceModelPath, fileEntry.Name())
+				targetFilePath := filepath.Join(targetModelDir, fileEntry.Name()) // Symlink will have same name as source file
+
+				if dryRun {
+					fmt.Printf("[DRY RUN]   Would symlink file '%s' to '%s'\n", sourceFilePath, targetFilePath)
+					logging.InfoLogger.Printf("[DRY RUN]     File: '%s' -> '%s'\n", sourceFilePath, targetFilePath)
+				} else {
+					if err := os.Symlink(sourceFilePath, targetFilePath); err != nil {
+						logging.ErrorLogger.Printf("Failed to symlink file '%s' to '%s': %v\n", sourceFilePath, targetFilePath, err)
+						fmt.Printf("  Failed to symlink file %s for model %s: %v\n", fileEntry.Name(), modelFolderName, err)
+						// Optionally, decide if one failed file symlink should stop all for this model.
+					} else {
+						logging.DebugLogger.Printf("  Symlinked file '%s' to '%s'\n", sourceFilePath, targetFilePath)
+					}
+				}
+			}
+			if !dryRun {
+				fmt.Printf("Finished symlinking files for model: %s/%s\n", authorName, modelFolderName)
+			}
+		}
+	}
+
+	logging.InfoLogger.Println("Finished processing models for file-by-file symlinking.")
+	return nil
+}
+
 func searchModels(models []Model, searchTerms ...string) {
 	logging.InfoLogger.Printf("Searching for models with terms: %v\n", searchTerms)
 
